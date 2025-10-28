@@ -1,5 +1,3 @@
----
-
 # ⚡ Intent-Routed Agentic AI System
 
 ### *Next-Gen LangGraph + LLM Orchestration Framework for Autonomous Multi-Tool Reasoning*
