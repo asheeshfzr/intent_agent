@@ -1,14 +1,30 @@
-from fastapi import FastAPI, Query
-from fastapi.responses import JSONResponse
-from pathlib import Path
-from ..config import cfg
-app = FastAPI(title='docs-mock')
-DOC_DIR = Path(cfg.DOCS_DIR)
-@app.get('/search')
-def search(q: str = Query(...), k: int = 3):
-    items = []
-    for p in DOC_DIR.glob('*.md'):
-        t = p.read_text()
-        if q.lower() in t.lower() or q.lower() in p.name.lower():
-            items.append({'title': p.name, 'snippet': t[:400]})
-    return JSONResponse(content={'items': items[:k]})
+"""
+Mock Docs Service
+-----------------
+Simulates an external documents service endpoint for local testing.
+Runs on port 9010 when started via start_local.sh.
+"""
+
+from fastapi import FastAPI
+
+app = FastAPI(title="Docs Mock Service", version="1.0")
+
+# Example mock data
+MOCK_DOCS = {
+    "123": {"title": "Invoice 123", "status": "processed"},
+    "456": {"title": "Budget Report Q2", "status": "pending"},
+}
+
+
+@app.get("/docs/{doc_id}")
+async def get_doc(doc_id: str):
+    """
+    Mock endpoint that returns document details for testing.
+    """
+    return MOCK_DOCS.get(doc_id, {"error": "Document not found"})
+
+
+@app.get("/health")
+async def health_check():
+    """Health check endpoint."""
+    return {"status": "ok", "service": "docs_mock"}

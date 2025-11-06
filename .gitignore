@@ -1,0 +1,87 @@
+# Byte-compiled / cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+venv/
+env/
+.envrc
+.venv.bak/
+
+# Packaging / build
+build/
+dist/
+*.egg-info/
+.eggs/
+pip-wheel-metadata/
+wheels/
+
+# Test / coverage
+.pytest_cache/
+.tox/
+.nox/
+.coverage
+.coverage.*
+htmlcov/
+.cache/
+
+# Logs
+*.log
+
+# Environment / secrets
+.env
+.env.*
+*.secret
+*.pem
+*.key
+
+# Tooling
+.mypy_cache/
+.pyre/
+.pytype/
+.dmypy.json
+ruff_cache/
+.pyre_configuration.local
+
+# Jupyter
+.ipynb_checkpoints/
+.profile_default/
+.ipynb_rewrite/
+
+# Django / Flask / FastAPI
+*.sqlite3
+instance/
+*.db
+media/
+staticfiles/
+
+# Node (if present in a mixed repo)
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Editors / IDE
+.vscode/
+.idea/
+*.iml
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon?
+._*
+.Spotlight-V100
+.Trashes
+
+# Xcode (if iOS/macOS app parts exist)
+xcuserdata/
+DerivedData/
+
+# Misc
+coverage.xml
+pip-log.txt
+

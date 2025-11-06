@@ -1,70 +1,126 @@
-try:
-    # Pydantic v2
-    from pydantic_settings import BaseSettings  # type: ignore
-    from pydantic import conint, confloat
-except Exception:
-    # Pydantic v1 fallback
-    from pydantic import BaseSettings, conint, confloat  # type: ignore
-from typing import List, Dict
-import os
-from dotenv import load_dotenv
+"""
+Configuration Module
+--------------------
+Centralized configuration for the Agentic AI Orchestrator.
 
-load_dotenv()
+All literals, thresholds, ports, and feature flags are externalized here.
+Environment variables override defaults (via .env).
+"""
+
+from pydantic_settings import BaseSettings
+from pydantic import Field, AnyHttpUrl
+from typing import List, Optional
+
 
 class Settings(BaseSettings):
-    # Server
-    AGENT_HOST: str = "0.0.0.0"
-    AGENT_PORT: int = 8000
+    # ----------------------------------------------------------------------
+    # General application metadata
+    app_name: str = "Agentic AI Orchestrator"
+    app_version: str = "1.0.0"
+    environment: str = Field("local", description="Runtime environment (local/dev/prod)")
 
-    # External services
-    METRICS_MOCK_HOST: str = "localhost"
-    METRICS_MOCK_PORT: int = 9000
-    DOCS_MOCK_HOST: str = "localhost"
-    DOCS_MOCK_PORT: int = 9010
-    QDRANT_URL: str = "http://localhost:6333"
-    USE_QDRANT: bool = True
-    USE_LANGCHAIN: bool = True
-    USE_LANGGRAPH: bool = False  # optional switch
+    # ----------------------------------------------------------------------
+    # Core networking / infrastructure
+    agent_host: str = Field("0.0.0.0", description="Host address for the agent service")
+    use_qdrant: bool = Field(True, description="Enable Qdrant vector store for embeddings and RAG")
+    qdrant_url: str = Field("http://localhost:6333", description="Qdrant service endpoint URL")
 
-    # LLM / Agent parameters
-    GGML_MODEL_PATH: str = ""
-    AGENT_MAX_ITERATIONS: conint(ge=1, le=20) = 6
-    AGENT_MAX_TOKENS: conint(ge=32, le=2048) = 128
-    ROUTER_MAX_TOKENS: conint(ge=32, le=512) = 64
+    # ----------------------------------------------------------------------
+    # Model configuration
+    ggml_model_path: str = Field(
+        "/Users/asheeshbhardwaj/workspace/models/llama-2-7b.Q4_0.gguf",
+        description="Absolute path to local GGUF Llama model file."
+    )
+    use_langchain: bool = Field(True, description="Enable LangChain compatibility layer")
+    use_langgraph: bool = Field(True, description="Enable LangGraph orchestration")
+    model_max_tokens: int = Field(2048, description="Maximum tokens for local model generation")
 
-    # Thresholds
-    DEFAULT_P95_THRESHOLD_MS: conint(ge=1) = 200
-    KNOWLEDGE_SCORE_MIN: confloat(ge=0.0, le=1.0) = 0.4
-    KNOWLEDGE_SCORE_MIN_AGENT: confloat(ge=0.0, le=1.0) = 0.1
+    # ----------------------------------------------------------------------
+    # Prompt management
+    prompts_path: str = Field(
+        "prompts/",
+        description="Root directory for prompt templates"
+    )
+    prompt_version: str = Field(
+        "v1",
+        description="Prompt version folder name"
+    )
 
-    # Trace compactness
-    TRACE_COMPACT_LAST_N: conint(ge=1, le=10) = 3
+    # ----------------------------------------------------------------------
+    # Service mock ports
+    metrics_mock_port: int = Field(9000, description="Local port for metrics mock service")
+    docs_mock_port: int = Field(9010, description="Local port for docs mock service")
+    agent_port: int = Field(8000, description="Port for main agent service")
 
-    # Timeouts / retries
-    HTTP_TIMEOUT_SECONDS: confloat(gt=0.0) = 5.0
-    HTTP_RETRIES: conint(ge=0, le=5) = 2
-    HTTP_RETRY_BACKOFF_SECONDS: confloat(gt=0.0) = 0.3
+    # ----------------------------------------------------------------------
+    # Agent / router thresholds
+    router_max_tokens: int = Field(128, description="Token limit for routing prompt responses")
+    agent_max_iterations: int = Field(6, description="Maximum reasoning / action steps per workflow")
+    vector_score_threshold_primary: float = Field(0.4, description="Primary vector similarity threshold")
+    vector_score_threshold_fallback: float = Field(0.1, description="Fallback vector similarity threshold")
+    default_p95_threshold_ms: int = Field(500, description="Default p95 latency threshold for metrics")
+    compact_trace_length: int = Field(3, description="Compact trace size for summarization")
 
-    # Prompts
-    PROMPTS_DIR: str = "prompts"
-    ROUTER_PROMPT_VERSION: str = "router_v1.txt"
-    REACT_PROMPT_VERSION: str = "react_agent_v1.txt"
+    # ----------------------------------------------------------------------
+    # External / API configuration
+    service_catalog: str = Field(
+        "payments,orders,loans",
+        description="Comma-separated list of known mock services"
+    )
+    allowed_domains: List[str] = Field(
+        default_factory=lambda: ["localhost", "127.0.0.1"],
+        description="Allowlisted outbound domains"
+    )
 
-    # Service catalog (simple for POC; move to DB in prod)
-    SERVICE_CATALOG: List[str] = ["payments", "orders"]
+    # ----------------------------------------------------------------------
+    # Data and RAG configuration
+    seed_data_path: str = Field(
+        "seed_data/docs/",
+        description="Path to seed documents for vector embeddings"
+    )
+    embeddings_reindex_interval_hours: int = Field(
+        24, description="Reindexing interval for RAG vector store"
+    )
 
-    # Data paths
-    DOCS_DIR: str = "seed_data/docs"
+    # ----------------------------------------------------------------------
+    # Observability & telemetry
+    enable_otel: bool = Field(False, description="Enable OpenTelemetry tracing")
+    otel_exporter_url: Optional[AnyHttpUrl] = Field(
+        None, description="Optional OpenTelemetry collector endpoint"
+    )
+    enable_langfuse: bool = Field(False, description="Enable Langfuse event tracing")
+    enable_structured_logging: bool = Field(True, description="Use structured JSON logs")
+    log_level: str = Field("INFO", description="Logging verbosity")
 
+    # ----------------------------------------------------------------------
+    # Safety & guardrails
+    enable_content_filter: bool = Field(True, description="Enable content policy checks for LLM outputs")
+    sanitize_inputs: bool = Field(True, description="Pre-sanitize inputs to prevent injection attacks")
+
+    # ----------------------------------------------------------------------
+    # Internal tuning / feature flags
+    feature_flags: List[str] = Field(
+        default_factory=lambda: ["replan", "clarify", "reflect"],
+        description="Enabled agentic behavior flags"
+    )
+
+    # ----------------------------------------------------------------------
+    # Configuration source
     class Config:
         env_file = ".env"
+        env_file_encoding = "utf-8"
+        extra = "ignore"  # Allow unknown .env keys to prevent validation errors
+        case_sensitive = False  # ✅ Allow UPPER_CASE env vars to populate lowercase fields
 
-    @property
-    def METRICS_BASE_URL(self) -> str:
-        return f"http://{self.METRICS_MOCK_HOST}:{self.METRICS_MOCK_PORT}"
+# --------------------------------------------------------------------------
+# Global settings instance (for imports across app modules)
+# --------------------------------------------------------------------------
+settings = Settings()
+cfg = settings  # alias for convenience
 
-    @property
-    def DOCS_BASE_URL(self) -> str:
-        return f"http://{self.DOCS_MOCK_HOST}:{self.DOCS_MOCK_PORT}"
-
-cfg = Settings()
+# Optional: pretty-print config at startup
+if settings.environment == "local":
+    print(f"[Config] Loaded settings for {settings.environment.upper()} environment.")
+    print(f"[Config] Model path: {settings.ggml_model_path}")
+    print(f"[Config] Router max tokens: {settings.router_max_tokens}")
+    print(f"[Config] Prompts path: {settings.prompts_path}/{settings.prompt_version}")

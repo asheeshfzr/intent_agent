@@ -1,6 +1,6 @@
 # app/llm_local.py
 from typing import Optional
-from .config import cfg
+from .config import settings
 import json, os
 
 # Try import llama-cpp-python (may not be present in all envs)
@@ -13,7 +13,7 @@ except Exception:
 
 class LocalLLM:
     def __init__(self, model_path: Optional[str] = None):
-        self.model_path = model_path or cfg.GGML_MODEL_PATH
+        self.model_path = model_path or settings.ggml_model_path
         self.client = None
 
         # Only attempt to instantiate if llama_cpp is installed AND model path exists on disk

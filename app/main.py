@@ -6,6 +6,11 @@ from .schemas import QueryResponse
 
 app = FastAPI(title='Intent Agent POC LangChain')
 
+@app.get("/health")
+async def health_check():
+    """Simple readiness probe for Agent service."""
+    return {"status": "ok", "service": "agent"}
+
 class QueryIn(BaseModel):
     query: str
     user_id: str = 'anonymous'

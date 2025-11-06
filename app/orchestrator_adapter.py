@@ -1,7 +1,7 @@
 # This orchestrator will use LangChain agent if USE_LANGCHAIN true, otherwise fallback to simple flow.
-from .config import cfg
+from .config import settings
 from .router import classify_and_extract
-from .trace import record_prov, clear_trace
+from .trace import record_prov, clear_trace, new_trace_id
 from .tools.metrics_client import call_metrics
 from .tools.vector_tool import call_vector
 from .tools.util_tool import run_sql, calc
@@ -18,15 +18,37 @@ except Exception:
     _HAS_FULL_LG = False
 
 def execute_workflow(query: str, user_id: str = None):
-    clear_trace()
+    print(f"[DEBUG] execute_workflow called with query: {query}")
+    trace_id = new_trace_id()   # create a unique trace ID for this workflow
+    clear_trace(trace_id)
+    
+    # First, let's check the router's output
+    try:
+        print("[DEBUG] Calling classify_and_extract")
+        parsed = classify_and_extract(query)
+        print(f"[DEBUG] Router output: {parsed}")
+    except Exception as e:
+        print(f"[ERROR] Error in classify_and_extract: {str(e)}")
+        parsed = {'intent': 'unknown', 'confidence': 0.0, 'reasoning': f'Error: {str(e)}'}
+    
     # If LangGraph is enabled, run the stateful graph orchestrator (full if available, else minimal) and return
-    if getattr(cfg, 'USE_LANGGRAPH', False):
+    if getattr(settings, 'use_langgraph', False):
         try:
-            return run_graph_engine(query, user_id)
-        except ImportError:
+            print("[DEBUG] Using LangGraph orchestrator")
+            result = run_graph_engine(query, user_id)
+            print(f"[DEBUG] LangGraph result: {result}")
+            return result
+        except Exception as e:
+            print(f"[ERROR] Error in run_graph_engine: {str(e)}")
             # Fallback to minimal in-process graph
-            from .orchestrator_graph import run_graph as _fallback_graph
-            return _fallback_graph(query, user_id)
+            try:
+                print("[DEBUG] Falling back to minimal graph")
+                from .orchestrator_graph import run_graph as _fallback_graph
+                return _fallback_graph(query, user_id)
+            except Exception as fallback_error:
+                print(f"[ERROR] Fallback graph failed: {str(fallback_error)}")
+                return {'answer': 'Error processing request', 'status': 'error', 'trace': []}
+    
     parsed = classify_and_extract(query)
     record_prov('intent','router','llm', {'query': query}, parsed, parsed.get('confidence',0.0), 'router_prompt', session_id=user_id)
     intent = parsed.get('intent')
@@ -38,7 +60,7 @@ def execute_workflow(query: str, user_id: str = None):
         clarify_q = "Could you clarify what you want to do? For example: metrics for which service and time window, or a topic to search?"
     else:
         if intent == 'metrics_lookup':
-            known_services = set(cfg.SERVICE_CATALOG)
+            known_services = set(settings.service_catalog)
             svc = entities.get('service')
             if not svc:
                 clarify_q = "Which service should I get metrics for? (e.g., payments or orders)"
@@ -63,7 +85,7 @@ def execute_workflow(query: str, user_id: str = None):
         set_pending_clarify(user_id, clarify_q)
         return {'answer': clarify_q, 'status': 'clarify', 'trace': []}
     # If LangChain enabled, use agent for all intents (including metrics)
-    if cfg.USE_LANGCHAIN:
+    if settings.use_langchain:
         try:
             lc = LocalLangChain()
             tools = make_langchain_tools()
@@ -82,7 +104,7 @@ def execute_workflow(query: str, user_id: str = None):
             from langchain.prompts import PromptTemplate
             # Load ReAct prompt from file
             try:
-                with open(os.path.join(cfg.PROMPTS_DIR, cfg.REACT_PROMPT_VERSION), 'r') as f:
+                with open(os.path.join(settings.PROMPTS_DIR, settings.REACT_PROMPT_VERSION), 'r') as f:
                     react_text = f.read()
             except Exception:
                 react_text = "You are an operations assistant. Use tools.\n\nAvailable tools:\n{tools}\n\nYou can use one of these tool names: {tool_names}\n\nUser question: {input}\n\n{agent_scratchpad}\n"
@@ -92,7 +114,7 @@ def execute_workflow(query: str, user_id: str = None):
                 agent=agent,
                 tools=tools,
                 handle_parsing_errors=True,
-                max_iterations=cfg.AGENT_MAX_ITERATIONS,
+                max_iterations=settings.agent_max_iterations,
                 verbose=False,
             )
             result = executor.invoke({"input": query})
@@ -122,7 +144,7 @@ def execute_workflow(query: str, user_id: str = None):
                         # Compose final answer similar to deterministic path
                         data = tool_json.get('data', {})
                         p95 = data.get('p95')
-                        thr = cfg.DEFAULT_P95_THRESHOLD_MS
+                        thr = settings.default_p95_threshold_ms
                         if isinstance(p95, (int, float)):
                             sign = '>' if p95 > thr else '<='
                             answer = f"{svc} p95={p95}ms {sign} {thr}ms"
@@ -147,7 +169,7 @@ def execute_workflow(query: str, user_id: str = None):
                         top = data.get('top') or {}
                         title = (top.get('payload', {}) or {}).get('title') or top.get('title') or 'unknown'
                         snippet = (top.get('payload', {}) or {}).get('text') or top.get('text') or ''
-                        if not top or (isinstance(top.get('score'), (int,float)) and top.get('score') < cfg.KNOWLEDGE_SCORE_MIN_AGENT):
+                        if not top or (isinstance(top.get('score'), (int,float)) and top.get('score') < settings.KNOWLEDGE_SCORE_MIN_AGENT):
                             cq = "I couldn't find a strong match. Can you specify the topic or doc name?"
                             record_prov('clarify','control','orchestrator', {'query': query}, {'question': cq}, 0.5, 'clarify_question', session_id=user_id)
                             return {'answer': cq, 'status': 'clarify', 'trace': []}
@@ -234,7 +256,7 @@ def execute_workflow(query: str, user_id: str = None):
         if not metrics_res.success:
             # try docs fallback
             try:
-                r = httpx.get(f'{cfg.DOCS_BASE_URL}/search', params={'q': svc}, timeout=cfg.HTTP_TIMEOUT_SECONDS)
+                r = httpx.get(f'{settings.DOCS_BASE_URL}/search', params={'q': svc}, timeout=settings.HTTP_TIMEOUT_SECONDS)
                 docs = r.json()
                 record_prov('http_docs','tool','http_docs', {'q':svc}, docs, 0.5, 'http_fallback', session_id=user_id)
                 if docs.get('items'):
@@ -244,20 +266,20 @@ def execute_workflow(query: str, user_id: str = None):
                 pass
             return {'answer':'No metrics found', 'status':'clarify', 'trace': []}
         p95 = metrics_res.data.get('p95')
-        if p95 and p95 > cfg.DEFAULT_P95_THRESHOLD_MS:
-            ans = f"{svc} p95={p95}ms > {cfg.DEFAULT_P95_THRESHOLD_MS}ms"
+        if p95 and p95 > settings.default_p95_threshold_ms:
+            ans = f"{svc} p95={p95}ms > {settings.default_p95_threshold_ms}ms"
         else:
             ans = f"{svc} p95={p95}ms OK"
         clear_pending_clarify(user_id)
-        data_payload = {'service': svc, 'window': window, 'p95': p95, 'threshold_ms': cfg.DEFAULT_P95_THRESHOLD_MS, 'verdict': 'above' if p95 and p95 > cfg.DEFAULT_P95_THRESHOLD_MS else 'ok'}
+        data_payload = {'service': svc, 'window': window, 'p95': p95, 'threshold_ms': settings.default_p95_threshold_ms, 'verdict': 'above' if p95 and p95 > settings.default_p95_threshold_ms else 'ok'}
         return {'answer': ans, 'status':'done', 'trace': [], 'data': data_payload}
     if intent == 'knowledge_lookup':
         vec_res = call_vector(query)
         record_prov('vector','tool','vector', {'query':query}, vec_res.dict(), vec_res.score, 'vector_search', session_id=user_id)
-        if not vec_res.success or vec_res.score < cfg.KNOWLEDGE_SCORE_MIN:
+        if not vec_res.success or vec_res.score < settings.KNOWLEDGE_SCORE_MIN:
             # fallback http docs
             try:
-                r = httpx.get(f'{cfg.DOCS_BASE_URL}/search', params={'q': query}, timeout=cfg.HTTP_TIMEOUT_SECONDS)
+                r = httpx.get(f'{settings.DOCS_BASE_URL}/search', params={'q': query}, timeout=settings.HTTP_TIMEOUT_SECONDS)
                 docs = r.json()
                 record_prov('http_docs','tool','http_docs', {'q':query}, docs, 0.5, 'http_fallback', session_id=user_id)
                 if docs.get('items'):
@@ -275,7 +297,7 @@ def execute_workflow(query: str, user_id: str = None):
         targets = entities.get('targets')
         if not targets and 'and' in query:
             parts = [p.strip() for p in query.split('and')]
-            targets = [p for p in parts if p in cfg.SERVICE_CATALOG]
+            targets = [p for p in parts if p in settings.service_catalog]
         if targets and len(targets) >= 2:
             sql = 'SELECT * FROM services'
             sql_res = run_sql(sql)

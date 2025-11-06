@@ -1,5 +1,5 @@
 import re
-from .config import cfg
+from .config import settings
 def extract_entities(query: str):
     q = query.lower()
     service = None
@@ -10,7 +10,7 @@ def extract_entities(query: str):
     m2 = re.search(r'last (\d+)(m|min|s)', q)
     if m2:
         window = m2.group(1) + m2.group(2)
-    for s in cfg.SERVICE_CATALOG:
+    for s in settings.service_catalog:
         if s in q:
             service = s
     return {'service': service, 'window': window}

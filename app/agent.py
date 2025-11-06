@@ -1,6 +1,6 @@
 from .orchestrator_adapter import execute_workflow
 from .trace import get_trace
-from .config import cfg
+from .config import settings
 from .schemas import QueryResponse, TraceItem
 
 def _compact_trace(nodes, last_n: int):
@@ -25,7 +25,15 @@ def handle_query(query: str, user_id: str = None):
     data = res.get('data', {})
     # Attach a short inline trace to the response (configurable)
     try:
-        trace = _compact_trace(get_trace(), last_n=cfg.TRACE_COMPACT_LAST_N)
+        trace = _compact_trace(get_trace(), last_n=settings.TRACE_COMPACT_LAST_N)
     except Exception:
         trace = res.get('trace', []) or []
-    return QueryResponse(status=status, summary=summary, data=data, trace=trace).dict()
+    return QueryResponse(
+    session_id=user_id,               # or p.session_id if that’s your request model
+    response=summary or "",           # whatever the main textual output is
+    status=status,
+    summary=summary,
+    data=data,
+    trace=trace
+).model_dump()
+

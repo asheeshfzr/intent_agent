@@ -5,32 +5,40 @@ services:
     container_name: intent-agent-api
     environment:
       - AGENT_HOST=0.0.0.0
-      - AGENT_PORT=8000
+      - AGENT_PORT=${AGENT_PORT:-8000}
       - METRICS_MOCK_HOST=metrics-mock
-      - METRICS_MOCK_PORT=9000
+      - METRICS_MOCK_PORT=${METRICS_MOCK_PORT:-9000}
       - DOCS_MOCK_HOST=docs-mock
-      - DOCS_MOCK_PORT=9010
-      - USE_QDRANT=false
-      - USE_LANGCHAIN=true
+      - DOCS_MOCK_PORT=${DOCS_MOCK_PORT:-9010}
+      - USE_QDRANT=true
+      - QDRANT_URL=http://qdrant:6333
+      - SERVICE_CATALOG=payments,orders,loans
     ports:
-      - "8000:8000"
+      - "${AGENT_PORT:-8000}:${AGENT_PORT:-8000}"
     depends_on:
       - metrics-mock
       - docs-mock
+      - qdrant
   metrics-mock:
-    build: .
+    image: python:3.11-slim
     container_name: intent-agent-metrics-mock
-    command: uvicorn app.tools.metrics_mock:app --host 0.0.0.0 --port 9000
+    working_dir: /app
+    volumes:
+      - ./:/app
+    command: bash -c "pip install -r requirements.txt && uvicorn app.tools.metrics_mock:app --host 0.0.0.0 --port ${METRICS_MOCK_PORT:-9000}"
     ports:
-      - "9000:9000"
+      - "${METRICS_MOCK_PORT:-9000}:${METRICS_MOCK_PORT:-9000}"
   docs-mock:
-    build: .
+    image: python:3.11-slim
     container_name: intent-agent-docs-mock
-    command: uvicorn app.tools.docs_mock:app --host 0.0.0.0 --port 9010
+    working_dir: /app
+    volumes:
+      - ./:/app
+    command: bash -c "pip install -r requirements.txt && uvicorn app.tools.docs_mock:app --host 0.0.0.0 --port ${DOCS_MOCK_PORT:-9010}"
     ports:
-      - "9010:9010"
+      - "${DOCS_MOCK_PORT:-9010}:${DOCS_MOCK_PORT:-9010}"
   qdrant:
-    image: qdrant/qdrant
+    image: qdrant/qdrant:latest
     container_name: qdrant
     ports:
       - "6333:6333"

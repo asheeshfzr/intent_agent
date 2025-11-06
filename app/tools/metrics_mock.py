@@ -1,18 +1,26 @@
-from fastapi import FastAPI, Query
-from fastapi.responses import JSONResponse
-import json
-from pathlib import Path
-app = FastAPI(title='metrics-mock')
-HERE = Path(__file__).resolve().parent.parent.parent
-FIXTURE = HERE / 'seed_data' / 'metrics_fixture.json'
-db = {}
-if FIXTURE.exists():
-    db = json.loads(FIXTURE.read_text())
-@app.get('/metrics')
-def get_metrics(service: str = Query(...), window: str = Query('5m')):
-    key = service.lower()
-    if key in db:
-        d = db[key].copy()
-        d.update({'service': service, 'window': window})
-        return JSONResponse(content=d)
-    return JSONResponse(content={'error':'not_found','service':service}, status_code=404)
+"""
+Mock Metrics Service
+--------------------
+Simulates a metrics collection or monitoring endpoint.
+Runs on port 9000 when started via start_local.sh.
+"""
+
+from fastapi import FastAPI, Request
+
+app = FastAPI(title="Metrics Mock Service", version="1.0")
+
+
+@app.post("/metrics")
+async def collect_metrics(request: Request):
+    """
+    Mock endpoint to receive metrics payloads.
+    """
+    data = await request.json()
+    print("[Mock Metrics] Received payload:", data)
+    return {"status": "received", "payload_size": len(str(data))}
+
+
+@app.get("/health")
+async def health_check():
+    """Health check endpoint."""
+    return {"status": "ok", "service": "metrics_mock"}

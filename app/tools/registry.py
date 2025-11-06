@@ -1,41 +1,51 @@
+# app/tools/registry.py
 from pydantic import BaseModel, Field
-from typing import Dict, List, Optional, Any
+from typing import List, Dict, Optional
+from enum import Enum
 
-class ToolSchema(BaseModel):
+class ToolCapability(str, Enum):
+    METRICS = "metrics"
+    VECTOR = "vector"
+    SQL = "sql"
+    HTTP = "http"
+    UTIL = "util"
+
+class ToolMeta(BaseModel):
+    key: str
     name: str
-    capabilities: List[str] = Field(default_factory=list)
-    input_schema: Dict[str, Any] = Field(default_factory=dict)
-    output_schema: Dict[str, Any] = Field(default_factory=dict)
-    timeout_seconds: float = 5.0
+    capabilities: List[ToolCapability]
+    timeout_seconds: int = 5
+    retries: int = 1
+    description: Optional[str] = None
+    request_schema: Optional[dict] = None
+    response_schema: Optional[dict] = None
 
-# Lightweight registry with metadata; in prod, fetch from config or service discovery
-REGISTRY: Dict[str, ToolSchema] = {
-    "metrics_tool": ToolSchema(
+DEFAULT_TOOL_REGISTRY: Dict[str, ToolMeta] = {
+    "metrics_tool": ToolMeta(
+        key="metrics_tool",
         name="metrics_tool",
-        capabilities=["metrics"],
-        input_schema={"type": "string", "format": "service=<name>;window=<duration>"},
-        output_schema={"type": "object", "properties": {"p95": {"type": "number"}}},
-        timeout_seconds=5.0,
+        capabilities=[ToolCapability.METRICS, ToolCapability.HTTP],
+        timeout_seconds=6,
+        retries=2,
+        description="Fetch metrics from metrics mock API"
     ),
-    "vector_tool": ToolSchema(
+    "vector_tool": ToolMeta(
+        key="vector_tool",
         name="vector_tool",
-        capabilities=["knowledge"],
-        input_schema={"type": "string", "format": "raw question"},
-        output_schema={"type": "object", "properties": {"top": {"type": "object"}}},
-        timeout_seconds=5.0,
+        capabilities=[ToolCapability.VECTOR],
+        timeout_seconds=8,
+        retries=1,
+        description="Search documents / vector DB"
     ),
-    "util_sql": ToolSchema(
+    "util_sql": ToolMeta(
+        key="util_sql",
         name="util_sql",
-        capabilities=["calc", "sql"],
-        input_schema={"type": "string", "format": "SQL SELECT or arithmetic expression"},
-        output_schema={"type": "object", "properties": {"rows": {"type": "array"}}},
-        timeout_seconds=5.0,
-    ),
+        capabilities=[ToolCapability.SQL, ToolCapability.UTIL],
+        timeout_seconds=3,
+        retries=0,
+        description="Local sqlite utility tool"
+    )
 }
 
-def tools_by_capability(capability: str) -> List[str]:
-    out: List[str] = []
-    for name, meta in REGISTRY.items():
-        if capability in meta.capabilities:
-            out.append(name)
-    return out
+def get_tools_by_capability(capability: ToolCapability):
+    return [m for m in DEFAULT_TOOL_REGISTRY.values() if capability in m.capabilities]

@@ -1,6 +1,6 @@
 from typing import Any, Dict, List, Optional
 from dataclasses import dataclass, field
-from .config import cfg
+from .config import settings
 from .router import classify_and_extract
 from .trace import record_prov, clear_trace
 from .session_state import get_pending_clarify, set_pending_clarify, clear_pending_clarify
@@ -41,8 +41,8 @@ def node_plan(st: OrchestratorState) -> OrchestratorState:
         svc = st.entities.get('service')
         if not svc:
             st.clarify_question = "Which service should I get metrics for? (e.g., payments or orders)"
-        elif svc not in set(cfg.SERVICE_CATALOG):
-            st.clarify_question = f"I don't recognize service '{svc}'. Should I use one of: {', '.join(cfg.SERVICE_CATALOG)}?"
+        elif svc not in set(settings.service_catalog):
+            st.clarify_question = f"I don't recognize service '{svc}'. Should I use one of: {', '.join(settings.service_catalog)}?"
         elif not st.entities.get('window'):
             st.clarify_question = "What time window should I use (e.g., 5m, 1h)?"
     elif st.intent == 'calc_compare':
@@ -65,17 +65,17 @@ def node_act(st: OrchestratorState) -> OrchestratorState:
         st.tool_results.append(res.dict())
         if res.success:
             p95 = res.data.get('p95')
-            if p95 and p95 > cfg.DEFAULT_P95_THRESHOLD_MS:
-                st.answer = f"{svc} p95={p95}ms > {cfg.DEFAULT_P95_THRESHOLD_MS}ms"
-                st.data = {'service': svc, 'window': window, 'p95': p95, 'threshold_ms': cfg.DEFAULT_P95_THRESHOLD_MS, 'verdict': 'above'}
+            if p95 and p95 > settings.default_p95_threshold_ms:
+                st.answer = f"{svc} p95={p95}ms > {settings.default_p95_threshold_ms}ms"
+                st.data = {'service': svc, 'window': window, 'p95': p95, 'threshold_ms': settings.default_p95_threshold_ms, 'verdict': 'above'}
             else:
                 st.answer = f"{svc} p95={p95}ms OK"
-                st.data = {'service': svc, 'window': window, 'p95': p95, 'threshold_ms': cfg.DEFAULT_P95_THRESHOLD_MS, 'verdict': 'ok'}
+                st.data = {'service': svc, 'window': window, 'p95': p95, 'threshold_ms': settings.default_p95_threshold_ms, 'verdict': 'ok'}
             st.status = 'done'
         else:
             # Try docs fallback
             try:
-                r = httpx.get(f'{cfg.DOCS_BASE_URL}/search', params={'q': svc}, timeout=cfg.HTTP_TIMEOUT_SECONDS)
+                r = httpx.get(f'{settings.DOCS_BASE_URL}/search', params={'q': svc}, timeout=settings.HTTP_TIMEOUT_SECONDS)
                 docs = r.json()
                 record_prov('http_docs','tool','http_docs', {'q':svc}, docs, 0.5, 'http_fallback', session_id=st.user_id)
                 if docs.get('items'):
@@ -91,7 +91,7 @@ def node_act(st: OrchestratorState) -> OrchestratorState:
         vec = call_vector(st.query)
         record_prov('vector','tool','vector', {'query':st.query}, vec.dict(), vec.score, 'vector_search', session_id=st.user_id)
         st.tool_results.append(vec.dict())
-        if vec.success and vec.score >= cfg.KNOWLEDGE_SCORE_MIN:
+        if vec.success and vec.score >= settings.KNOWLEDGE_SCORE_MIN:
             top = vec.data.get('top', {})
             title = (top.get('payload',{}) or {}).get('title','unknown')
             snippet = (top.get('payload',{}) or {}).get('text','')[:300]
@@ -101,7 +101,7 @@ def node_act(st: OrchestratorState) -> OrchestratorState:
         else:
             # Fallback docs search
             try:
-                r = httpx.get(f'{cfg.DOCS_BASE_URL}/search', params={'q': st.query}, timeout=cfg.HTTP_TIMEOUT_SECONDS)
+                r = httpx.get(f'{settings.DOCS_BASE_URL}/search', params={'q': st.query}, timeout=settings.HTTP_TIMEOUT_SECONDS)
                 docs = r.json()
                 record_prov('http_docs','tool','http_docs', {'q':st.query}, docs, 0.5, 'http_fallback', session_id=st.user_id)
                 if docs.get('items'):
@@ -150,10 +150,18 @@ def node_finalize(st: OrchestratorState) -> Dict[str, Any]:
 # Graph runner
 
 def run_graph(query: str, user_id: Optional[str] = None) -> Dict[str, Any]:
-    clear_trace()
-    st = OrchestratorState(user_id=user_id, query=query)
-    st = node_route(st)
-    st = node_plan(st)
-    st = node_act(st)
-    st = node_reflect(st)
-    return node_finalize(st)
+    # Generate a new trace ID and clear any existing trace
+    trace_id = new_trace_id()
+    clear_trace(trace_id)
+    
+    try:
+        st = OrchestratorState(user_id=user_id, query=query)
+        st = node_route(st)
+        st = node_plan(st)
+        st = node_act(st)
+        st = node_reflect(st)
+        return node_finalize(st)
+    except Exception as e:
+        import traceback
+        print(f"[ERROR] Error in run_graph: {str(e)}\n{traceback.format_exc()}")
+        return {'answer': f'Error processing request: {str(e)}', 'status': 'error', 'trace': []}

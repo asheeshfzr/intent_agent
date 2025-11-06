@@ -1,31 +1,18 @@
-# Core app & FastAPI
-fastapi==0.95.2
-uvicorn[standard]==0.22.0
-python-dotenv==1.0.0
-httpx==0.24.0
-
-# Local LLM wrapper
-llama-cpp-python==0.2.23  # Pinned to a stable version
-
-# Vector DB client & semantic embeddings
-qdrant-client==1.15.1
-sentence-transformers==2.2.2
-
-# LangChain (agent orchestration)
-langchain==0.1.5
-langchain-core==0.1.21
-langchain-community==0.0.19
-langsmith==0.0.91
-
-# LangGraph (stateful agent graphs)
-langgraph==0.2.16
-
-# Pydantic BaseSettings v2
-pydantic-settings==2.3.4
-
-# Utility / fallback
-scikit-learn==1.3.2
-
-# testing
-pytest==7.4.0
-pytest-asyncio==0.23.5
+# requirements.txt (recommended curated set for Python 3.11)
+fastapi>=0.95.2,<1.0
+uvicorn[standard]>=0.22.0,<1.0
+python-dotenv>=1.0.0
+httpx>=0.24.1,<1.0
+llama-cpp-python>=0.2.23
+qdrant-client>=1.15.1
+sentence-transformers>=2.2.2,<3.0
+langchain>=1.0.0
+langchain-core>=0.3.0
+langchain-community>=0.0.19
+langsmith>=0.4.0
+langgraph>=1.0.0
+pydantic>=2.3.0
+pydantic-settings>=2.3.4
+tenacity>=8.2.0
+pytest>=7.4.0
+pytest-asyncio>=0.23.5

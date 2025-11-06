@@ -1,102 +1,55 @@
-# This module wires up LangChain using our LocalLLM wrapper.
-# It defines a LangChain-compatible LLM class and Tools for metrics/vector/sql.
-from langchain.llms.base import LLM
-from langchain.tools import Tool
-from pydantic import BaseModel
-from typing import Optional, List, Any, Dict
+"""
+LangChain Integration Layer
+---------------------------
+Provides compatibility utilities to construct LangChain-style tools
+and run simple reasoning chains using the local LLM or external APIs.
+"""
+
+from typing import Any, Callable, Dict, List
 from .llm_local import LocalLLM
-from .config import cfg
-from .tools.metrics_client import call_metrics
-from .tools.vector_tool import call_vector
-from .tools.util_tool import run_sql, calc
-import asyncio, json, httpx, time
 
-class LocalLangChain(LLM):
-    model: LocalLLM = LocalLLM()
-    def _call(self, prompt: str, stop: Optional[List[str]] = None) -> str:
-        # Keep agent steps short to encourage Action/Observation cycles
-        return self.model.generate(prompt, max_tokens=cfg.AGENT_MAX_TOKENS, temperature=0.0)
-    @property
-    def _identifying_params(self):
-        return {"name": "local-llm"}
-    @property
-    def _llm_type(self) -> str:
-        # Required by LangChain's abstract LLM base to identify the implementation
-        return "local-llm"
 
-def make_langchain_tools():
-    # metrics tool (sync HTTP to avoid asyncio event loop issues in AnyIO worker thread)
-    def metrics_tool_fn(input_str: str) -> str:
-        # parse input like "service=payments;window=5m"
-        parts = {}
-        for p in input_str.split(';'):
-            if '=' in p:
-                k, v = p.split('=', 1)
-                parts[k.strip()] = v.strip()
-        svc = parts.get('service', 'payments')
-        window = parts.get('window', '5m')
-        try:
-            url = f"{cfg.METRICS_BASE_URL}/metrics"
-            with httpx.Client(timeout=cfg.HTTP_TIMEOUT_SECONDS) as client:
-                r = client.get(url, params={'service': svc, 'window': window})
-                if r.status_code == 200:
-                    payload = {
-                        'tool': 'metrics',
-                        'success': True,
-                        'data': r.json(),
-                        'score': 0.9,
-                        'reason': 'mock',
-                        'ts': time.time(),
-                    }
-                else:
-                    payload = {
-                        'tool': 'metrics',
-                        'success': False,
-                        'data': {'error': r.text},
-                        'score': 0.0,
-                        'ts': time.time(),
-                    }
-            return json.dumps(payload)
-        except Exception as e:
-            return json.dumps({
-                'tool': 'metrics',
-                'success': False,
-                'data': {'error': str(e)},
-                'score': 0.0,
-                'ts': time.time(),
-            })
-    def vector_tool_fn(q: str) -> str:
-        res = call_vector(q)
-        return json.dumps(res.dict())
-    def sql_tool_fn(q: str) -> str:
-        if 'select' in q.lower():
-            res = run_sql(q)
-        else:
-            res = calc(q)
-        return json.dumps(res.dict())
-    tools = [
-        Tool(
-            func=metrics_tool_fn,
-            name='metrics_tool',
-            description='Use this to fetch latency metrics. Input must be a string in the form "service=<name>;window=<duration>", e.g., "service=payments;window=5m".'
-        ),
-        Tool(
-            func=vector_tool_fn,
-            name='vector_tool',
-            description='Use this to search knowledge base documents for guidance. Input is the raw user question.'
-        ),
-        Tool(
-            func=sql_tool_fn,
-            name='util_sql',
-            description='Use this to either run SQL (input contains SELECT) or perform simple calculations. Input is the user request text.'
+class LocalLangChain:
+    """
+    Lightweight LangChain-style wrapper around the local LLM engine.
+    Useful for tool orchestration and reasoning tasks inside workflows.
+    """
+
+    def __init__(self, model_path: str | None = None):
+        self.llm = LocalLLM(model_path=model_path)
+        print("[LocalLangChain] Initialized LangChain-like wrapper")
+
+    def run(self, prompt: str, context: Dict[str, Any] | None = None) -> str:
+        """
+        Execute a reasoning-style chain by sending a formatted prompt to the LLM.
+        """
+        context_str = (
+            "\nContext:\n" + "\n".join(f"{k}: {v}" for k, v in context.items())
+            if context else ""
         )
-    ]
-    # Annotate capabilities for capability-based selection
-    for t in tools:
-        if t.name == 'metrics_tool':
-            setattr(t, 'capabilities', ['metrics'])
-        elif t.name == 'vector_tool':
-            setattr(t, 'capabilities', ['knowledge'])
-        elif t.name == 'util_sql':
-            setattr(t, 'capabilities', ['calc','sql'])
-    return tools
+        query = f"{prompt}{context_str}\nAnswer:"
+        response = self.llm.generate(query)
+        return response
+
+
+def make_langchain_tools(tools: Dict[str, Callable[..., Any]]) -> List[Dict[str, Any]]:
+    """
+    Builds a mock LangChain-style list of tools for use in workflow orchestration.
+
+    Args:
+        tools: Dictionary of tool_name → function.
+
+    Returns:
+        A LangChain-like tool list where each tool is represented as a callable object.
+    """
+    wrapped_tools = []
+
+    for name, func in tools.items():
+        wrapped_tools.append({
+            "name": name,
+            "description": func.__doc__ or f"Tool: {name}",
+            "run": func
+        })
+
+    print(f"[LocalLangChain] Registered {len(wrapped_tools)} tools.")
+    return wrapped_tools

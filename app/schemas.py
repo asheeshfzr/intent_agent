@@ -1,40 +1,55 @@
-from pydantic import BaseModel, Field
+"""
+Schemas
+-------
+Pydantic models for API input/output, tracing, and agent responses.
+"""
+
 from typing import Any, Dict, List, Optional
+from pydantic import BaseModel, Field
 
+
+# ---------------------------------------------------------
+# Query Input
+# ---------------------------------------------------------
+class QueryRequest(BaseModel):
+    """Incoming query schema for agent workflow."""
+    session_id: Optional[str] = Field(None, description="Unique session identifier")
+    query: str = Field(..., description="User input or instruction to the agent")
+    context: Optional[Dict[str, Any]] = Field(default=None, description="Additional context or metadata")
+
+
+# ---------------------------------------------------------
+# Trace Item
+# ---------------------------------------------------------
 class TraceItem(BaseModel):
-    ts: float
-    node_id: str
-    node_type: str
-    tool: str
-    decision_rule: str
-    confidence: float
+    """A single trace event in the agent's execution flow."""
+    timestamp: str = Field(..., description="UTC timestamp of this event")
+    step: str = Field(..., description="Workflow step name")
+    data: Dict[str, Any] = Field(default_factory=dict, description="Step-specific data or reasoning output")
 
+
+# ---------------------------------------------------------
+# Query Response
+# ---------------------------------------------------------
 class QueryResponse(BaseModel):
-    status: str = Field(..., description="done|clarify|error")
-    summary: str = Field(..., description="Human-readable short answer")
-    data: Dict[str, Any] = Field(default_factory=dict)
-    trace: List[TraceItem] = Field(default_factory=list)
+    session_id: Optional[str] = None
+    response: Optional[str] = None
+    status: str
+    summary: Optional[str] = None
+    data: dict = {}
+    trace: list = []
 
-class MetricsAnswer(BaseModel):
-    service: str
-    window: str
-    p95: Optional[float]
-    threshold_ms: Optional[int]
-    verdict: Optional[str]  # above|ok|unknown
-    reasoning: Optional[str]
+    class Config:
+        alias_generator = lambda s: ''.join(
+            word.capitalize() if i else word for i, word in enumerate(s.split('_'))
+        )
+        populate_by_name = True
 
-class KnowledgeCitations(BaseModel):
-    title: str
-    snippet: str
-    score: Optional[float] = None
 
-class KnowledgeAnswer(BaseModel):
-    query: str
-    top: Optional[KnowledgeCitations] = None
-    confidence: Optional[float] = None
-
-class CalcCompareAnswer(BaseModel):
-    targets: List[str] = []
-    p95s: Dict[str, float] = {}
-    diff_ms: Optional[int] = None
-    live_p95s: Dict[str, float] = {}
+# ---------------------------------------------------------
+# Error Schema (optional but useful)
+# ---------------------------------------------------------
+class ErrorResponse(BaseModel):
+    """Standard error format for API responses."""
+    error: str
+    details: Optional[Dict[str, Any]] = None
